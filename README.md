@@ -37,3 +37,6 @@ benchmark                                 time (avg)             (min … max)  
 ---------------------------------------------------------------------------- -----------------------------
 solana-fast-tester transfer lamports    2.03 ms/iter     (1.51 ms … 2.91 ms)   2.27 ms   2.78 ms   2.78 ms
 ```
+
+
+500 TX/S NO MORE RATE LIMITING
