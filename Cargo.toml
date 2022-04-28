@@ -1,0 +1,15 @@
+[package]
+name = "solana-fast-tester"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tokio = { version = "^1", features = ["full"] }
+bincode = "^1"
+borsh = "0.9.3"
+solana-sdk = "^1.10"
+solana-program = "^1.10"
+solana-program-test = "^1.10"
