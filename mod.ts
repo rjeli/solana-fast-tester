@@ -62,7 +62,6 @@ export class FastTester {
       `./target/release/${libName}`,
       import.meta.url,
     );
-    console.log({ libUrl });
     this.dylib = Deno.dlopen(libUrl, DylibParams);
     this.rt = this.dylib.symbols.init_runtime();
     this.ptc = this.dylib.symbols.init_ptc(this.rt);

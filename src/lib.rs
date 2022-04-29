@@ -1,14 +1,48 @@
-use std::os::raw::c_void;
-use std::time::Duration;
-
-use solana_program::message::Message;
-use solana_program_test::{ProgramTest, ProgramTestContext};
-use solana_sdk::account::Account;
-use solana_sdk::commitment_config::CommitmentLevel;
-use solana_sdk::signature::Keypair;
-use solana_sdk::signer::Signer;
-use solana_sdk::{pubkey::Pubkey, transaction::Transaction};
+use solana_banks_client::BanksClient;
+use solana_program::entrypoint::ProgramResult;
+use solana_runtime::{
+    bank_forks::BankForks, commitment::BlockCommitmentCache, genesis_utils::GenesisConfigInfo,
+};
+use solana_sdk::{
+    account::Account, commitment_config::CommitmentLevel, genesis_config::GenesisConfig,
+    hash::Hash, message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer,
+    transaction::Transaction,
+};
+use std::{
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 use tokio::runtime::{self, Runtime};
+
+#[macro_use]
+extern crate solana_bpf_loader_program;
+
+mod program_test_context;
+mod syscall_stubs;
+
+pub use program_test_context::ProgramTestContext;
+
+pub static LOGGER: FtLogger = FtLogger;
+
+pub struct FtLogger;
+
+impl log::Log for FtLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        return false;
+    }
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            println!(
+                "[level={} target={} module={}] {}",
+                record.level(),
+                record.target(),
+                record.module_path().unwrap_or("(None)"),
+                record.args()
+            );
+        }
+    }
+    fn flush(&self) {}
+}
 
 async fn slow_msg(msg: &str) {
     println!("slow msg: {}", msg);
@@ -22,11 +56,13 @@ pub extern "C" fn init_runtime() -> *const Runtime {
         // .worker_threads(4)
         .build()
         .unwrap();
+    /*
     rt.spawn(async {
         loop {
             slow_msg("loop alive").await;
         }
     });
+    */
     Box::into_raw(Box::new(rt))
 }
 
@@ -34,7 +70,9 @@ pub extern "C" fn init_runtime() -> *const Runtime {
 pub extern "C" fn init_ptc(rt_ptr: *const Runtime) -> *mut ProgramTestContext {
     let rt: &Runtime = unsafe { &*rt_ptr };
     // pt.add_program(&program_name, program_id, None);
-    let ptc = rt.block_on(ProgramTest::default().start_with_context());
+    log::set_max_level(log::LevelFilter::Trace);
+    log::set_logger(&LOGGER).unwrap();
+    let ptc = rt.block_on(ProgramTestContext::new(1_400_000));
     return Box::into_raw(Box::new(ptc));
 }
 
@@ -149,29 +187,7 @@ pub extern "C" fn get_latest_blockhash(
     println!("latest block hash: {:?}", h);
     let hash_vec = h.to_bytes().to_vec();
     hash_vec.leak().as_ptr()
-    /*
-    CTX.with(|ctx_cell| {
-        let ctx = ctx_cell.borrow();
-        let h = ctx.ctx.as_ref().unwrap().last_blockhash;
-        let hash_vec = h.to_bytes().to_vec();
-        hash_vec.leak().as_ptr()
-    })
-    */
 }
-
-/*
-#[derive(BorshSerialize, BorshDeserialize)]
-struct AccountMetaPiece {
-    pubkey: Pubkey,
-    is_signer: bool,
-    is_writable: bool,
-    f: AccountMeta,
-}
-
-
-#[derive(BorshSerialize, BorshDeserialize)]
-struct TxPieces {}
-*/
 
 #[no_mangle]
 pub extern "C" fn process(
@@ -181,11 +197,9 @@ pub extern "C" fn process(
     msg_len: usize,
     signers_bytes: *const u8,
     num_signers: usize,
-    // tx_bytes: *const u8,
-    // tx_len: usize,
 ) -> u8 {
     let process_start = std::time::Instant::now();
-    eprintln!("processing tx {:?} {}", msg_bytes, msg_len);
+    // eprintln!("processing tx {:?} {}", msg_bytes, msg_len);
     assert!(!rt_ptr.is_null());
     assert!(!ptc_ptr.is_null());
     let rt = unsafe { &*rt_ptr };
@@ -194,7 +208,7 @@ pub extern "C" fn process(
     let msg_slice = unsafe { std::slice::from_raw_parts(msg_bytes, msg_len) };
     let msg: Message = bincode::deserialize(msg_slice).unwrap();
 
-    eprintln!("msg: {:?}", msg);
+    // eprintln!("msg: {:?}", msg);
 
     let mut tx = Transaction::new_unsigned(msg);
     let recent_blockhash = rt
@@ -209,24 +223,20 @@ pub extern "C" fn process(
 
     tx.sign(&signers, recent_blockhash);
 
-    eprintln!("tx: {:?}", tx);
-
-    // let kps = Keypair::from_bytes(bytes)
-
-    // let tx_slice = unsafe { std::slice::from_raw_parts(tx_bytes, tx_len) };
-    // let tx: Transaction = bincode::deserialize(tx_slice).unwrap();
-    // println!("tx: {:?}", tx);
+    // eprintln!("tx: {:?}", tx);
 
     let t0 = std::time::Instant::now();
     let result = rt.block_on(
         ptc.banks_client
             .process_transaction_with_preflight_and_commitment(tx, CommitmentLevel::Processed),
     );
+    /*
     eprintln!(
         "processing took {} ms (from start: {} ms)",
         t0.elapsed().as_millis(),
         process_start.elapsed().as_millis()
     );
+    */
     match result {
         Ok(()) => 0,
         Err(e) => {
@@ -234,27 +244,6 @@ pub extern "C" fn process(
             1
         }
     }
-
-    /*
-    CTX.with(|ctx_cell| {
-        let mut ctx = ctx_cell.borrow_mut();
-        // let ptc: &mut ProgramTestContext = ctx.ctx.as_mut().unwrap();
-        let bc = &mut ctx.ctx.as_mut().unwrap().banks_client;
-        println!("processing...");
-        rt.block_on(bc.process_transaction(tx)).unwrap();
-        println!("processed...");
-    });
-    */
-}
-
-#[no_mangle]
-pub extern "C" fn add_u32(a: u32, b: u32) -> u32 {
-    a + b
-}
-
-#[no_mangle]
-pub extern "C" fn get_add_u32_ptr() -> *const c_void {
-    add_u32 as *const c_void
 }
 
 #[cfg(test)]

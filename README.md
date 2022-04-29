@@ -29,13 +29,19 @@ ft.process(
 WOW SO FAST:
 
 ```bash
+$ deno bench -A --unstable bench.ts 
 cpu: AMD Ryzen 5 2600 Six-Core Processor
 runtime: deno 1.21.0 (x86_64-unknown-linux-gnu)
 
 file:///home/eli/repos/solana-fast-tester/bench.ts
-benchmark                                 time (avg)             (min … max)       p75       p99      p995
----------------------------------------------------------------------------- -----------------------------
-solana-fast-tester transfer lamports    2.03 ms/iter     (1.51 ms … 2.91 ms)   2.27 ms   2.78 ms   2.78 ms
+benchmark                                    time (avg)             (min … max)       p75       p99      p995
+------------------------------------------------------------------------------- -----------------------------
+solana-fast-tester transfer lamports       2.29 ms/iter     (1.61 ms … 3.95 ms)   2.25 ms   3.52 ms   3.72 ms
+solana-test-validator transfer lamports  405.98 ms/iter (402.39 ms … 408.98 ms) 406.91 ms 408.98 ms 408.98 ms
+
+summary
+  solana-fast-tester transfer lamports
+   177.04x times faster than solana-test-validator transfer lamports
 ```
 
 
